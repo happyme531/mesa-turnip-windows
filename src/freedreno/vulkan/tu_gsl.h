@@ -156,16 +156,16 @@ tu_gsl_submit_commands(struct tu_gsl_api *api, uint32_t device,
    auto entries = static_cast<tu_gsl_command *>(calloc(size_t(count) + 1, sizeof(tu_gsl_command)));
    if (!entries) return -4;
    memcpy(entries, commands, size_t(count) * sizeof(tu_gsl_command));
-   struct tu_gsl_memory root;
-   uint64_t size = 65536;
-   int ret = tu_gsl_alloc(api, device, &root, size);
+   struct tu_gsl_memory completion;
+   const uint64_t size = 65536;
+   int ret = tu_gsl_alloc(api, device, &completion, size);
    if (ret) {
       free(entries);
       return ret;
    }
-   auto cs = reinterpret_cast<uint32_t *>(root.desc[0]);
-   auto marker = reinterpret_cast<volatile uint32_t *>(root.desc[0] + size - 4);
-   uint64_t marker_address = root.desc[1] + size - 4;
+   auto cs = reinterpret_cast<uint32_t *>(completion.desc[0]);
+   auto marker = reinterpret_cast<volatile uint32_t *>(completion.desc[0] + size - 4);
+   uint64_t marker_address = completion.desc[1] + size - 4;
    *marker = 0;
    unsigned pos = 0;
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_FOR_IDLE, 0);
@@ -175,13 +175,13 @@ tu_gsl_submit_commands(struct tu_gsl_api *api, uint32_t device,
    cs[pos++] = timestamp;
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_MEM_WRITES, 0);
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_FOR_IDLE, 0);
-   entries[count] = {&root, pos, 0, 0};
+   entries[count] = {&completion, pos, 0, 0};
    ret = tu_gsl_submit_raw(api, device, context, entries, count + 1, timestamp);
    if (!ret) ret = api->wait(device, context, timestamp, 10000);
    MemoryBarrier();
    if (!ret && *marker != timestamp) ret = -13;
    if (ret) fprintf(stderr, "GSL completion: status=%d timestamp=%u marker=%u\n", ret, timestamp, *marker);
-   api->memory_free(root.desc);
+   api->memory_free(completion.desc);
    free(entries);
    return ret;
 }
