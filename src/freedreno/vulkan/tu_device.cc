@@ -161,6 +161,9 @@ static const struct vk_instance_extension_table tu_instance_extensions_supported
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
    .KHR_wayland_surface                 = true,
 #endif
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   .KHR_win32_surface                   = true,
+#endif
 #ifdef VK_USE_PLATFORM_XCB_KHR
    .KHR_xcb_surface                     = true,
 #endif
@@ -447,6 +450,11 @@ get_device_extensions(const struct tu_physical_device *device,
    ext->EXT_image_drm_format_modifier = false;
    ext->EXT_physical_device_drm = false;
    ext->EXT_map_memory_placed = false;
+   ext->KHR_present_id = false;
+   ext->KHR_present_id2 = false;
+   ext->KHR_present_wait = false;
+   ext->KHR_present_wait2 = false;
+   ext->EXT_present_timing = false;
 #endif
 }
 
@@ -970,6 +978,15 @@ tu_get_features(struct tu_physical_device *pdevice,
 
    /* VALVE_buffer_device_address_allocation_alignment */
    features->bufferDeviceAddressAllocationAlignment = true;
+#ifdef TU_HAS_GSL
+   features->presentId = false;
+   features->presentWait = false;
+   features->presentId2 = false;
+   features->presentWait2 = false;
+   features->presentTiming = false;
+   features->presentAtRelativeTime = false;
+   features->presentAtAbsoluteTime = false;
+#endif
 }
 
 static void

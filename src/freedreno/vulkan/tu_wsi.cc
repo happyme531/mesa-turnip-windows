@@ -49,7 +49,11 @@ tu_wsi_init(struct tu_physical_device *physical_device)
    if (result != VK_SUCCESS)
       return result;
 
+#ifdef TU_HAS_GSL
+   physical_device->wsi_device.supports_modifiers = false;
+#else
    physical_device->wsi_device.supports_modifiers = true;
+#endif
    physical_device->wsi_device.can_present_on_device =
       tu_wsi_can_present_on_device;
 

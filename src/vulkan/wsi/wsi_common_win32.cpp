@@ -41,6 +41,7 @@
 #include <dxguids/dxguids.h>
 
 #include <dcomp.h>
+#include <dwmapi.h>
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"      // warning: cast to pointer from integer of different size
@@ -211,10 +212,12 @@ wsi_win32_surface_get_capabilities(VkIcdSurfaceBase *surf,
    caps->surfaceCapabilities.currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
    caps->surfaceCapabilities.maxImageArrayLayers = 1;
 
-   caps->surfaceCapabilities.supportedCompositeAlpha =
-      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR |
-      VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR |
-      VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+   caps->surfaceCapabilities.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+   if (!wsi_device->sw && wsi_device->win32.get_d3d12_command_queue) {
+      caps->surfaceCapabilities.supportedCompositeAlpha |=
+         VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR |
+         VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+   }
 
    VkImageUsageFlags image_usage = wsi_caps_get_image_usage();
 
@@ -577,7 +580,10 @@ wsi_win32_image_init(VkDevice device_h,
    if (chain->dxgi)
       return VK_SUCCESS;
 
-   chain->chain_dc = GetDC(chain->wnd);
+   if (!chain->chain_dc)
+      chain->chain_dc = GetDC(chain->wnd);
+   if (!chain->chain_dc)
+      return VK_ERROR_SURFACE_LOST_KHR;
    image->sw.dc = CreateCompatibleDC(chain->chain_dc);
    HBITMAP bmp = NULL;
 
@@ -628,7 +634,8 @@ wsi_win32_swapchain_destroy(struct wsi_swapchain *drv_chain,
    for (uint32_t i = 0; i < chain->base.image_count; i++)
       wsi_win32_image_finish(chain, allocator, &chain->images[i]);
 
-   DeleteDC(chain->chain_dc);
+   if (chain->chain_dc)
+      ReleaseDC(chain->wnd, chain->chain_dc);
 
    if (chain->surface->current_swapchain == chain)
       chain->surface->current_swapchain = NULL;
@@ -838,6 +845,13 @@ wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
    if (chain->dxgi)
       return wsi_win32_queue_present_dxgi(chain, image, damage);
 
+   VkResult result = chain->wsi->wsi->WaitForFences(
+      chain->base.device, 1, &chain->base.fences[image_index], true, UINT64_MAX);
+   if (result != VK_SUCCESS) {
+      chain->status = result;
+      return result;
+   }
+
    char *ptr = (char *)image->base.cpu_map;
    char *dptr = (char *)image->sw.ppvBits;
 
@@ -848,6 +862,13 @@ wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
    }
    if (!StretchBlt(chain->chain_dc, 0, 0, chain->extent.width, chain->extent.height, image->sw.dc, 0, 0, chain->extent.width, chain->extent.height, SRCCOPY))
       chain->status = VK_ERROR_MEMORY_MAP_FAILED;
+
+   if (chain->status == VK_SUCCESS && chain->base.present_mode == VK_PRESENT_MODE_FIFO_KHR) {
+      if (!GdiFlush())
+         chain->status = VK_ERROR_MEMORY_MAP_FAILED;
+      else if (FAILED(DwmFlush()))
+         chain->status = VK_ERROR_SURFACE_LOST_KHR;
+   }
 
    wsi_win32_set_image_idle(chain, image);
 
