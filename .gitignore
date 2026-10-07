@@ -5,5 +5,9 @@
 *.pyo
 *.out
 /build
+/build-turnip-windows-arm64/
+/.turnip-tools/
+/dist-turnip-windows/
+/dist-turnip-windows.zip
 .venv/
 *.mda.tar
