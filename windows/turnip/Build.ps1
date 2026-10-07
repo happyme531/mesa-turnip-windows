@@ -89,6 +89,13 @@ foreach ($package in $zlibPackages) {
     if (!(Test-Path -LiteralPath $packagePath)) { Invoke-WebRequest $package.Url -OutFile $packagePath }
     if ((Get-FileHash -LiteralPath $packagePath).Hash -ne $package.Hash) { throw "Checksum mismatch: $($package.Name)" }
 }
+$directxRoot = Join-Path $sourceRoot 'subprojects\DirectX-Headers-1.0'
+if (!(Test-Path -LiteralPath (Join-Path $directxRoot 'meson.build'))) {
+    & git clone --depth 1 --branch v1.619.1 https://github.com/microsoft/DirectX-Headers.git $directxRoot
+    if ($LASTEXITCODE) { throw 'DirectX-Headers could not be downloaded.' }
+}
+$directxRevision = (& git -C $directxRoot rev-parse HEAD).Trim()
+if ($directxRevision -ne '9e393d6d8a3b30dcc6f2806ef604ec16a27b0d7e') { throw 'DirectX-Headers revision mismatch.' }
 $nativeFile = Join-Path $toolRoot 'native.ini'
 $pythonPath = $python.Replace('\','/')
 @"
@@ -138,6 +145,8 @@ $generatedManifest = Get-Content -LiteralPath (Join-Path $BuildDirectory 'src\fr
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'freedreno_icd.aarch64.json') -Encoding utf8
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Run.ps1'),(Join-Path $PSScriptRoot 'README.zh-CN.md') -Destination $OutputDirectory -Force
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'docs\license.rst') -Destination (Join-Path $OutputDirectory 'MESA-LICENSES.txt') -Force
+Copy-Item -LiteralPath (Join-Path $directxRoot 'LICENSE') -Destination (Join-Path $OutputDirectory 'DIRECTX-HEADERS-LICENSE.txt') -Force
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'subprojects\zlib-1.3.1\LICENSE') -Destination (Join-Path $OutputDirectory 'ZLIB-LICENSE.txt') -Force
 [ordered]@{
     source_revision = $revision
     built_at_utc = [DateTimeOffset]::UtcNow.ToString('o')
