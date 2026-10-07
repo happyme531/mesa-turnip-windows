@@ -132,6 +132,14 @@ if freedreno_kmds.contains('kgsl')
   libtu_files += files('tu_knl_kgsl.cc')
 endif
 
+if freedreno_kmds.contains('gsl')
+  assert(host_machine.system() == 'windows', 'GSL backend requires Windows')
+  tu_flags += '-DTU_HAS_GSL'
+  libtu_files += files('tu_knl_gsl.cc')
+  tu_deps += cc.find_library('advapi32')
+  tu_deps += cc.find_library('ws2_32')
+endif
+
 if freedreno_kmds.contains('msm')
   tu_flags += '-DTU_HAS_MSM'
   libtu_files += files('tu_knl_drm_msm.cc', 'tu_knl_drm.cc')
@@ -202,6 +210,7 @@ endif
 libvulkan_freedreno = shared_library(
   'vulkan_freedreno',
   [libtu_files, tu_drirc, tu_entrypoints, tu_tracepoints, freedreno_xml_header_files, sha1_h, u_format_pack_h, bvh_spv],
+  vs_module_defs : vulkan_api_def,
   include_directories : libtu_includes,
   link_with : [
     libfreedreno_ir3,

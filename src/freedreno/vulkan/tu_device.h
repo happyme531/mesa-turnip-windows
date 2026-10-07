@@ -112,6 +112,10 @@ struct tu_physical_device
    int64_t master_minor;
 
    int kgsl_dma_fd;
+#ifdef TU_HAS_GSL
+   void *gsl;
+   uint32_t gsl_device;
+#endif
    enum tu_kgsl_dma_type kgsl_dma_type;
 
    uint32_t gmem_size;

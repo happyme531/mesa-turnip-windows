@@ -186,7 +186,7 @@ files_mesa_util = files(
 
 libmesa_util_links = []
 
-if host_machine.cpu_family() == 'aarch64' and cc.get_id() != 'msvc'
+if host_machine.cpu_family() == 'aarch64' and cc.get_id() != 'msvc' and host_machine.system() != 'windows'
   files_mesa_util += files('cache_ops_aarch64.c')
 elif host_machine.cpu_family() in ['x86', 'x86_64'] and cc.get_id() != 'msvc'
   libmesa_util_clflush = static_library(

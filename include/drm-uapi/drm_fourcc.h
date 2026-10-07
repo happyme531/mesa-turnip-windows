@@ -24,7 +24,13 @@
 #ifndef DRM_FOURCC_H
 #define DRM_FOURCC_H
 
+#ifdef _WIN32
+#include <stdint.h>
+typedef uint64_t __u64;
+typedef uint32_t __u32;
+#else
 #include "drm.h"
+#endif
 
 #if defined(__cplusplus)
 extern "C" {

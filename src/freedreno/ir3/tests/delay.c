@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <err.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "ir3.h"
 #include "ir3_assembler.h"
@@ -89,13 +89,19 @@ static struct ir3_shader *
 parse_asm(struct ir3_compiler *c, const char *asmstr)
 {
    struct ir3_kernel_info info = {};
-   FILE *in = fmemopen((void *)asmstr, strlen(asmstr), "r");
+   FILE *in = tmpfile();
+   if (!in)
+      exit(1);
+   fwrite(asmstr, 1, strlen(asmstr), in);
+   rewind(in);
    struct ir3_shader *shader = ir3_parse_asm(c, &info, in);
 
    fclose(in);
 
-   if (!shader)
-      errx(-1, "assembler failed");
+   if (!shader) {
+      fprintf(stderr, "assembler failed\n");
+      exit(1);
+   }
 
    return shader;
 }

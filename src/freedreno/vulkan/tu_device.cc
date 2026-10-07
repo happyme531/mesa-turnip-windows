@@ -437,6 +437,17 @@ get_device_extensions(const struct tu_physical_device *device,
       .VALVE_fragment_density_map_layered = true,
       .VALVE_mutable_descriptor_type = true,
    } };
+#ifdef TU_HAS_GSL
+   ext->KHR_calibrated_timestamps = false;
+   ext->EXT_calibrated_timestamps = false;
+   ext->KHR_external_memory_fd = false;
+   ext->KHR_external_semaphore_fd = false;
+   ext->KHR_external_fence_fd = false;
+   ext->EXT_external_memory_dma_buf = false;
+   ext->EXT_image_drm_format_modifier = false;
+   ext->EXT_physical_device_drm = false;
+   ext->EXT_map_memory_placed = false;
+#endif
 }
 
 static void
@@ -1916,11 +1927,15 @@ fail_free_name:
 static void
 tu_physical_device_finish(struct tu_physical_device *device)
 {
+#ifdef TU_HAS_GSL
+   tu_knl_gsl_finish(device);
+#endif
 #ifdef TU_USE_WSI_PLATFORM
    tu_wsi_finish(device);
 #endif
 
-   close(device->local_fd);
+   if (device->local_fd != -1)
+      close(device->local_fd);
    if (device->master_fd != -1)
       close(device->master_fd);
 
@@ -3983,8 +3998,12 @@ sync_cache(VkDevice _device,
    VK_FROM_HANDLE(tu_device, device, _device);
 
    if (!device->physical_device->has_cached_non_coherent_memory) {
+#ifdef TU_HAS_GSL
+      MemoryBarrier();
+#else
       tu_finishme(
          "data cache clean and invalidation are unsupported on this arch!");
+#endif
       return VK_SUCCESS;
    }
 

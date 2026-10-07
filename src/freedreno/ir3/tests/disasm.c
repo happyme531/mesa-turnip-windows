@@ -18,6 +18,7 @@
 #include <string.h>
 #include "util/macros.h"
 #include "util/u_vector.h"
+#include "util/memstream.h"
 
 #include "ir3.h"
 #include "ir3_assembler.h"
@@ -603,13 +604,14 @@ main(int argc, char **argv)
 {
    int retval = 0;
    int decode_fails = 0, asm_fails = 0, encode_fails = 0;
-   const int output_size = 4096;
-   char *disasm_output = malloc(output_size);
-   FILE *fdisasm = fmemopen(disasm_output, output_size, "w+");
-   if (!fdisasm) {
+   char *disasm_output = NULL;
+   size_t disasm_size = 0;
+   struct u_memstream mem;
+   if (!u_memstream_open(&mem, &disasm_output, &disasm_size)) {
       fprintf(stderr, "failed to fmemopen\n");
       return 1;
    }
+   FILE *fdisasm = u_memstream_get(&mem);
 
    void *ctx = ralloc_context(NULL);
 
@@ -647,7 +649,6 @@ main(int argc, char **argv)
              test->expected);
 
       rewind(fdisasm);
-      memset(disasm_output, 0, output_size);
 
       /*
        * Test disassembly:
@@ -659,7 +660,7 @@ main(int argc, char **argv)
                         .show_errors = true,
                         .no_match_cb = print_raw,
                      });
-      fflush(fdisasm);
+      u_memstream_flush(&mem);
 
       trim(disasm_output);
 
@@ -684,8 +685,11 @@ main(int argc, char **argv)
                                 &(struct ir3_compiler_options){});
       }
 
-      FILE *fasm =
-         fmemopen((void *)test->expected, strlen(test->expected), "r");
+      FILE *fasm = tmpfile();
+      if (!fasm)
+         return 1;
+      fwrite(test->expected, 1, strlen(test->expected), fasm);
+      rewind(fasm);
 
       struct ir3_kernel_info info = {};
       struct ir3_shader *shader = ir3_parse_asm(compilers[dev_info->chip], &info, fasm);
@@ -747,7 +751,7 @@ main(int argc, char **argv)
 
    u_vector_finish(&all_tests);
    ralloc_free(ctx);
-   fclose(fdisasm);
+   u_memstream_close(&mem);
    free(disasm_output);
 
    return retval;
