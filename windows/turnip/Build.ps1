@@ -49,7 +49,22 @@ if (!(Test-Path -LiteralPath (Join-Path $flexRoot 'win_bison.exe'))) {
     }
     Expand-Archive -LiteralPath $archive -DestinationPath $flexRoot -Force
 }
-$env:PATH = "$venv\Scripts;$flexRoot;$llvmBin;$env:PATH"
+$glslangRoot = Join-Path $toolRoot 'glslang'
+$glslangValidator = Join-Path $glslangRoot 'bin\glslangValidator.exe'
+if (!(Test-Path -LiteralPath $glslangValidator)) {
+    $archive = Join-Path $toolRoot 'glslang-16.6.0-windows-x86_64-release.zip'
+    if (!(Test-Path -LiteralPath $archive)) {
+        Invoke-WebRequest 'https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip' -OutFile $archive
+    }
+    if ((Get-FileHash -LiteralPath $archive).Hash -ne '82BF434E69B9BB4829DE7E2B4BC2C5E7A7861E53D66CF75E5CC70F5F694A8D9B') {
+        throw 'glslang archive checksum mismatch.'
+    }
+    Expand-Archive -LiteralPath $archive -DestinationPath $glslangRoot -Force
+    Copy-Item -LiteralPath (Join-Path $glslangRoot 'bin\glslang.exe') -Destination $glslangValidator
+}
+& $glslangValidator --version
+if ($LASTEXITCODE) { throw 'The build-time GLSL compiler could not run.' }
+$env:PATH = "$venv\Scripts;$flexRoot;$glslangRoot\bin;$llvmBin;$env:PATH"
 $env:CC = $env:CXX = 'clang-cl'
 $env:PYTHONUTF8 = '1'
 Get-Command ninja -ErrorAction Stop | Out-Null

@@ -28,7 +28,7 @@ Minecraft 需要支持原生 Vulkan 的版本、ARM64 Java 和相应 ARM64 LWJGL
 
 ## 从源码构建
 
-需要 Windows ARM64、PowerShell 7、Python 3.12/3.13、Git、Ninja，以及 Visual Studio 2026 的 ARM64 C++、Windows SDK 和 Clang 工具。脚本自动创建专用 Python 环境、安装固定版本的构建依赖，并下载经过 SHA256 校验的 WinFlexBison。首次构建需要联网。
+需要 Windows ARM64、PowerShell 7、Python 3.12/3.13、Git、Ninja，以及 Visual Studio 2026 的 ARM64 C++、Windows SDK 和 Clang 工具。脚本自动创建专用 Python 环境、安装固定版本的构建依赖，并下载经过 SHA256 校验的 WinFlexBison、glslang 和 zlib。glslang 使用 Khronos 的 Windows x64 构建工具，在 ARM64 Windows 上经系统兼容层运行；输出驱动和 CPU 测试仍是原生 ARM64。首次构建需要联网。
 
 ```powershell
 git clone --depth 1 --branch turnip-windows-gsl-dev https://github.com/happyme531/mesa-turnip-windows.git
