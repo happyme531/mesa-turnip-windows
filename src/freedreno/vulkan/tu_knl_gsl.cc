@@ -85,8 +85,8 @@ static VkResult gsl_sync_wait(struct vk_device *device, struct vk_sync *sync,
 static const struct vk_sync_type gsl_sync_type = {
    .size = sizeof(struct gsl_sync),
    .features = static_cast<vk_sync_features>(VK_SYNC_FEATURE_BINARY |
-      VK_SYNC_FEATURE_GPU_WAIT | VK_SYNC_FEATURE_CPU_WAIT |
-      VK_SYNC_FEATURE_CPU_RESET | VK_SYNC_FEATURE_CPU_SIGNAL |
+      VK_SYNC_FEATURE_GPU_WAIT | VK_SYNC_FEATURE_GPU_MULTI_WAIT |
+      VK_SYNC_FEATURE_CPU_WAIT | VK_SYNC_FEATURE_CPU_RESET | VK_SYNC_FEATURE_CPU_SIGNAL |
       VK_SYNC_FEATURE_WAIT_PENDING),
    .init = gsl_sync_init,
    .finish = gsl_sync_finish,
