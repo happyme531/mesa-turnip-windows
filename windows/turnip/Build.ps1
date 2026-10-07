@@ -65,6 +65,8 @@ if (!(Test-Path -LiteralPath $glslangValidator)) {
 & $glslangValidator --version
 if ($LASTEXITCODE) { throw 'The build-time GLSL compiler could not run.' }
 $env:PATH = "$venv\Scripts;$flexRoot;$glslangRoot\bin;$llvmBin;$env:PATH"
+$gitUnixTools = Join-Path $env:ProgramFiles 'Git\usr\bin'
+if (Test-Path -LiteralPath $gitUnixTools) { $env:PATH = "$env:PATH;$gitUnixTools" }
 $env:CC = $env:CXX = 'clang-cl'
 $env:PYTHONUTF8 = '1'
 Get-Command ninja -ErrorAction Stop | Out-Null
@@ -111,7 +113,7 @@ $configure += @(
 if ($LASTEXITCODE) { throw 'Mesa configuration failed.' }
 & ninja -C $BuildDirectory "-j$Jobs"
 if ($LASTEXITCODE) { throw 'Turnip build failed.' }
-& $python -m mesonbuild.mesonmain test -C $BuildDirectory --no-rebuild --print-errorlogs ir3_disasm ir3_delay_test
+& $python -m mesonbuild.mesonmain test -C $BuildDirectory --no-rebuild --print-errorlogs ir3_disasm ir3_delay_test check-xml-includes
 if ($LASTEXITCODE) { throw 'IR3 CPU regression failed.' }
 
 $formatProbe = Join-Path $BuildDirectory 'turnip-format-check.exe'
@@ -142,7 +144,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'docs\license.rst') -Destination (
     architecture = 'ARM64'
     build_type = 'debugoptimized'
     gsl_abi_driver_tested = '31.0.170.0'
-    cpu_tests = @('ir3_disasm','ir3_delay_test','format-check')
+    cpu_tests = @('ir3_disasm','ir3_delay_test','check-xml-includes','format-check')
     gpu_tests_run_by_build_script = $false
     dll_sha256 = (Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'vulkan_freedreno.dll')).Hash
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'build-info.json') -Encoding utf8
