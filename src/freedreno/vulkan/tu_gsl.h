@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include "freedreno_pm4.h"
@@ -105,9 +106,9 @@ tu_gsl_submit_raw(struct tu_gsl_api *api, uint32_t device,
                         uint32_t context, const struct tu_gsl_command *commands,
                         uint32_t count, uint32_t timestamp)
 {
-   if (count != 1 || !timestamp)
+   if (!count || count > (UINT32_MAX - 148) / 24 || !timestamp)
       return -5;
-   uint32_t words = 39 + 4 * count;
+   uint32_t words = 37 + 6 * count;
    uint32_t *metadata = static_cast<uint32_t *>(calloc(words, 4));
    if (!metadata)
       return -4;
@@ -115,18 +116,24 @@ tu_gsl_submit_raw(struct tu_gsl_api *api, uint32_t device,
    metadata[2] = words * 4;
    metadata[4] = 2;
    metadata[13] = 0xfadcab02;
-   metadata[14] = 96 + 16 * count;
+   metadata[14] = 88 + 24 * count;
    metadata[15] = 0xcccc0001;
-   metadata[16] = 88 + 16 * count;
+   metadata[16] = 80 + 24 * count;
    metadata[25] = count;
    for (uint32_t i = 0; i < count; i++) {
+      if (!commands[i].memory || !commands[i].dwords || commands[i].dwords > 0xfffff ||
+          commands[i].offset > commands[i].memory->desc[2] ||
+          commands[i].dwords * 4 > commands[i].memory->desc[2] - commands[i].offset) {
+         free(metadata);
+         return -5;
+      }
       uint64_t address = commands[i].memory->desc[1] + commands[i].offset;
-      metadata[36 + 4 * i] = commands[i].dwords;
-      metadata[37 + 4 * i] = address;
-      metadata[38 + 4 * i] = address >> 32;
+      metadata[36 + 6 * i] = commands[i].dwords;
+      metadata[37 + 6 * i] = address;
+      metadata[38 + 6 * i] = address >> 32;
    }
-   metadata[37 + 4 * count] = 0xfadcab00;
-   metadata[38 + 4 * count] = 8;
+   metadata[35 + 6 * count] = 0xfadcab00;
+   metadata[36 + 6 * count] = 8;
    struct {
       void *data;
       uint32_t size;
@@ -144,24 +151,23 @@ tu_gsl_submit_commands(struct tu_gsl_api *api, uint32_t device,
                         uint32_t context, const struct tu_gsl_command *commands,
                         uint32_t count, uint32_t timestamp)
 {
-   if (!count || !timestamp || count > (UINT32_MAX - 64) / 16)
+   if (!count || !timestamp || count >= (UINT32_MAX - 148) / 24)
       return -5;
+   auto entries = static_cast<tu_gsl_command *>(calloc(size_t(count) + 1, sizeof(tu_gsl_command)));
+   if (!entries) return -4;
+   memcpy(entries, commands, size_t(count) * sizeof(tu_gsl_command));
    struct tu_gsl_memory root;
-   uint64_t size = ((uint64_t(count) * 16 + 32 + 65535) / 65536) * 65536;
+   uint64_t size = 65536;
    int ret = tu_gsl_alloc(api, device, &root, size);
-   if (ret) return ret;
+   if (ret) {
+      free(entries);
+      return ret;
+   }
    auto cs = reinterpret_cast<uint32_t *>(root.desc[0]);
    auto marker = reinterpret_cast<volatile uint32_t *>(root.desc[0] + size - 4);
    uint64_t marker_address = root.desc[1] + size - 4;
    *marker = 0;
-   for (uint32_t i = 0; i < count; i++) {
-      uint64_t address = commands[i].memory->desc[1] + commands[i].offset;
-      cs[4 * i] = pm4_pkt7_hdr(CP_INDIRECT_BUFFER, 3);
-      cs[4 * i + 1] = address;
-      cs[4 * i + 2] = address >> 32;
-      cs[4 * i + 3] = commands[i].dwords;
-   }
-   unsigned pos = 4 * count;
+   unsigned pos = 0;
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_FOR_IDLE, 0);
    cs[pos++] = pm4_pkt7_hdr(CP_MEM_WRITE, 3);
    cs[pos++] = marker_address;
@@ -169,12 +175,14 @@ tu_gsl_submit_commands(struct tu_gsl_api *api, uint32_t device,
    cs[pos++] = timestamp;
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_MEM_WRITES, 0);
    cs[pos++] = pm4_pkt7_hdr(CP_WAIT_FOR_IDLE, 0);
-   const struct tu_gsl_command entry = {&root, pos, 0, 0};
-   ret = tu_gsl_submit_raw(api, device, context, &entry, 1, timestamp);
+   entries[count] = {&root, pos, 0, 0};
+   ret = tu_gsl_submit_raw(api, device, context, entries, count + 1, timestamp);
    if (!ret) ret = api->wait(device, context, timestamp, 10000);
    MemoryBarrier();
    if (!ret && *marker != timestamp) ret = -13;
+   if (ret) fprintf(stderr, "GSL completion: status=%d timestamp=%u marker=%u\n", ret, timestamp, *marker);
    api->memory_free(root.desc);
+   free(entries);
    return ret;
 }
 
