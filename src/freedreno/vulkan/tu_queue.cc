@@ -452,8 +452,10 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
 
    VkResult result =
       tu_insert_dynamic_cmdbufs(device, &cmd_buffers, &cmdbuf_count);
-   if (result != VK_SUCCESS)
+   if (result != VK_SUCCESS) {
+      mtx_unlock(&device->submit_mutex);
       return result;
+   }
 
    bool has_trace_points = false;
    static_assert(offsetof(struct tu_cmd_buffer, vk) == 0,
@@ -681,4 +683,3 @@ tu_queue_finish(struct tu_queue *queue)
    if (!emulated)
       tu_drm_submitqueue_close(queue->device, queue);
 }
-
