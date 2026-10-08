@@ -12,7 +12,9 @@
 #include "util/libdrm.h"
 #include "util/ralloc.h"
 
+#ifdef HAVE_LIBDRM
 #include "drm-uapi/msm_drm.h"
+#endif
 #include "util/bitset.h"
 #include "util/simple_mtx.h"
 #include "freedreno_common.h"
@@ -82,8 +84,10 @@ struct fd_perfcntr_state {
    unsigned nr_groups;
    const struct fd_perfcntr_group *groups;
 
+#ifdef HAVE_LIBDRM
    struct drm_msm_perfcntr_group *group_configs;
    struct drm_msm_perfcntr_config config;
+#endif
 
    /* bitmask of assigned counters per group: */
    assigned_counters_t *assigned_counters;
@@ -109,6 +113,7 @@ update_reserved_counters(struct fd_perfcntr_state *perfcntrs)
 static int
 update_group_counters(struct fd_perfcntr_state *perfcntrs, int group_idx)
 {
+#ifdef HAVE_LIBDRM
    int ret = 0;
 
    /* Update reserved config with kernel if it changes.  We might not
@@ -125,6 +130,9 @@ update_group_counters(struct fd_perfcntr_state *perfcntrs, int group_idx)
    }
 
    return ret;
+#else
+   return 0;
+#endif
 }
 
 struct fd_perfcntr_state *
@@ -146,6 +154,7 @@ fd_perfcntr_state_alloc(const struct fd_dev_id *id, int fd)
    perfcntrs->id = id;
    perfcntrs->nr_groups = nr_groups;
    perfcntrs->groups = groups;
+#ifdef HAVE_LIBDRM
    perfcntrs->group_configs =
       rzalloc_array(perfcntrs, struct drm_msm_perfcntr_group, nr_groups);
    if (!perfcntrs->group_configs) {
@@ -164,6 +173,7 @@ fd_perfcntr_state_alloc(const struct fd_dev_id *id, int fd)
       .group_stride = sizeof(struct drm_msm_perfcntr_group),
    };
 
+#endif
    perfcntrs->assigned_counters = rzalloc_array(perfcntrs, assigned_counters_t, nr_groups);
    if (!perfcntrs->assigned_counters) {
       ralloc_free(perfcntrs);
@@ -189,7 +199,9 @@ fd_perfcntr_state_free(struct fd_perfcntr_state *perfcntrs)
    if (!perfcntrs)
       return;
 
+#ifdef HAVE_LIBDRM
    perfcntrs->config.nr_groups = 0;
+#endif
    update_reserved_counters(perfcntrs);
    ralloc_free(perfcntrs);
 }
