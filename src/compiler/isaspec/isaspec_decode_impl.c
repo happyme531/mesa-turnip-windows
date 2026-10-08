@@ -40,6 +40,8 @@
 #include "util/ralloc.h"
 #include "util/u_debug.h"
 #include "util/u_math.h"
+#include "util/u_string.h"
+#include "util/strndup.h"
 
 #include "isa.h"
 
@@ -988,7 +990,15 @@ isa_disasm(void *bin, int sz, FILE *out, const struct isa_decode_options *option
 		state->call_targets = BITSET_RZALLOC(state, state->num_instr);
 
 		/* Do a pre-pass to find all the branch targets: */
+#ifdef _WIN32
+		state->print.out = fopen("NUL", "w");
+#else
 		state->print.out = fopen("/dev/null", "w");
+#endif
+		if (!state->print.out) {
+			ralloc_free(state);
+			return;
+		}
 		state->options = &default_options;   /* skip hooks for prepass */
 		disasm(state, bin, sz);
 		fclose(state->print.out);
