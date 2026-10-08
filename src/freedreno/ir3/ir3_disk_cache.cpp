@@ -31,6 +31,7 @@
 void
 ir3_disk_cache_init(struct ir3_compiler *compiler)
 {
+#if HAVE_BUILD_ID
    if (ir3_shader_debug & IR3_DBG_NOCACHE)
       return;
 
@@ -56,6 +57,7 @@ ir3_disk_cache_init(struct ir3_compiler *compiler)
 
    uint64_t driver_flags = ir3_shader_debug_hash_key();
    compiler->disk_cache = disk_cache_create(renderer, timestamp, driver_flags);
+#endif
 }
 
 void

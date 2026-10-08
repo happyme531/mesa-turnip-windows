@@ -27,6 +27,28 @@
 #include "ir3/ir3.h"
 #include "ir3_parser.h"
 
+#ifdef _WIN32
+static ptrdiff_t getline(char **line, size_t *capacity, FILE *stream)
+{
+  size_t length = 0;
+  int ch;
+  while ((ch = fgetc(stream)) != EOF) {
+    if (length + 1 >= *capacity) {
+      size_t next = *capacity ? *capacity * 2 : 256;
+      char *grown = realloc(*line, next);
+      if (!grown) return -1;
+      *line = grown;
+      *capacity = next;
+    }
+    (*line)[length++] = ch;
+    if (ch == '\n') break;
+  }
+  if (!length) return -1;
+  (*line)[length] = 0;
+  return length;
+}
+#endif
+
 #define YY_NO_INPUT
 #define YY_NO_UNPUT
 #define TOKEN(t) (ir3_yylval.tok = t)
