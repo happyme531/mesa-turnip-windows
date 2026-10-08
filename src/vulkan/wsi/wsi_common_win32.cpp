@@ -29,6 +29,7 @@
 #include "util/cnd_monotonic.h"
 #include "util/timespec.h"
 #include "util/u_thread.h"
+#include "util/u_debug.h"
 #include "vk_format.h"
 #include "vk_instance.h"
 #include "vk_physical_device.h"
@@ -41,6 +42,7 @@
 #include <dxguids/dxguids.h>
 
 #include <dcomp.h>
+#include <dwmapi.h>
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"      // warning: cast to pointer from integer of different size
@@ -109,8 +111,16 @@ struct wsi_win32_swapchain {
    VkExtent2D                 extent;
    HWND wnd;
    HDC chain_dc;
+   thrd_t present_thread;
+   bool present_thread_created;
+   bool present_thread_run;
+   uint32_t *present_queue;
+   uint32_t present_head;
+   uint32_t present_count;
    struct wsi_win32_image     images[0];
 };
+
+static void wsi_win32_stop_present_thread(struct wsi_win32_swapchain *chain);
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 wsi_GetPhysicalDeviceWin32PresentationSupportKHR(VkPhysicalDevice physicalDevice,
@@ -211,10 +221,12 @@ wsi_win32_surface_get_capabilities(VkIcdSurfaceBase *surf,
    caps->surfaceCapabilities.currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
    caps->surfaceCapabilities.maxImageArrayLayers = 1;
 
-   caps->surfaceCapabilities.supportedCompositeAlpha =
-      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR |
-      VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR |
-      VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+   caps->surfaceCapabilities.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+   if (!wsi_device->sw && wsi_device->win32.get_d3d12_command_queue) {
+      caps->surfaceCapabilities.supportedCompositeAlpha |=
+         VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR |
+         VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+   }
 
    VkImageUsageFlags image_usage = wsi_caps_get_image_usage();
 
@@ -577,7 +589,10 @@ wsi_win32_image_init(VkDevice device_h,
    if (chain->dxgi)
       return VK_SUCCESS;
 
-   chain->chain_dc = GetDC(chain->wnd);
+   if (!chain->chain_dc)
+      chain->chain_dc = GetDC(chain->wnd);
+   if (!chain->chain_dc)
+      return VK_ERROR_SURFACE_LOST_KHR;
    image->sw.dc = CreateCompatibleDC(chain->chain_dc);
    HBITMAP bmp = NULL;
 
@@ -625,10 +640,13 @@ wsi_win32_swapchain_destroy(struct wsi_swapchain *drv_chain,
    struct wsi_win32_swapchain *chain =
       (struct wsi_win32_swapchain *) drv_chain;
 
+   wsi_win32_stop_present_thread(chain);
+   vk_free(allocator, chain->present_queue);
    for (uint32_t i = 0; i < chain->base.image_count; i++)
       wsi_win32_image_finish(chain, allocator, &chain->images[i]);
 
-   DeleteDC(chain->chain_dc);
+   if (chain->chain_dc)
+      ReleaseDC(chain->wnd, chain->chain_dc);
 
    if (chain->surface->current_swapchain == chain)
       chain->surface->current_swapchain = NULL;
@@ -677,8 +695,8 @@ wsi_win32_release_images(struct wsi_swapchain *drv_chain,
    struct wsi_win32_swapchain *chain =
       (struct wsi_win32_swapchain *)drv_chain;
 
-   if (chain->status == VK_ERROR_SURFACE_LOST_KHR)
-      return chain->status;
+   if (p_atomic_read(&chain->status) == VK_ERROR_SURFACE_LOST_KHR)
+      return p_atomic_read(&chain->status);
 
    for (uint32_t i = 0; i < count; i++) {
       uint32_t index = indices[i];
@@ -709,6 +727,8 @@ wsi_win32_acquire_idle_cpu_image_locked(struct wsi_win32_swapchain *chain,
                                         const VkAcquireNextImageInfoKHR *info,
                                         uint32_t *out_image_index)
 {
+   if (p_atomic_read(&chain->status) != VK_SUCCESS)
+      return p_atomic_read(&chain->status);
    if (wsi_win32_find_idle_image(chain, out_image_index))
       return VK_SUCCESS;
 
@@ -725,6 +745,8 @@ wsi_win32_acquire_idle_cpu_image_locked(struct wsi_win32_swapchain *chain,
          return VK_TIMEOUT;
       else if (ret != thrd_success)
          return VK_ERROR_OUT_OF_DATE_KHR;
+      if (p_atomic_read(&chain->status) != VK_SUCCESS)
+         return p_atomic_read(&chain->status);
    } while (!wsi_win32_find_idle_image(chain, out_image_index));
 
    return VK_SUCCESS;
@@ -751,8 +773,8 @@ wsi_win32_acquire_next_image(struct wsi_swapchain *drv_chain,
       (struct wsi_win32_swapchain *)drv_chain;
 
    /* Bail early if the swapchain is broken */
-   if (chain->status != VK_SUCCESS)
-      return chain->status;
+   if (p_atomic_read(&chain->status) != VK_SUCCESS)
+      return p_atomic_read(&chain->status);
 
    /* acquire timeout has to be explicitly handled for sw wsi */
    if (!chain->dxgi)
@@ -819,24 +841,23 @@ wsi_win32_queue_present_dxgi(struct wsi_win32_swapchain *chain,
    }
 
    /* Mark the other image idle */
-   chain->status = VK_SUCCESS;
+   p_atomic_set(&chain->status, VK_SUCCESS);
    return VK_SUCCESS;
 }
 
 static VkResult
-wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
-                        uint32_t image_index,
-                        uint64_t present_id,
-                        const VkPresentRegionKHR *damage)
+wsi_win32_present_gdi(struct wsi_win32_swapchain *chain, uint32_t image_index)
 {
-   struct wsi_win32_swapchain *chain = (struct wsi_win32_swapchain *) drv_chain;
    assert(image_index < chain->base.image_count);
    struct wsi_win32_image *image = &chain->images[image_index];
 
-   assert(image->state == WSI_IMAGE_DRAWING);
-
-   if (chain->dxgi)
-      return wsi_win32_queue_present_dxgi(chain, image, damage);
+   VkResult result = chain->wsi->wsi->WaitForFences(
+      chain->base.device, 1, &chain->base.fences[image_index], true, UINT64_MAX);
+   if (result != VK_SUCCESS) {
+      p_atomic_set(&chain->status, result);
+      wsi_win32_set_image_idle(chain, image);
+      return result;
+   }
 
    char *ptr = (char *)image->base.cpu_map;
    char *dptr = (char *)image->sw.ppvBits;
@@ -847,11 +868,86 @@ wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
       ptr += image->base.row_pitches[0];
    }
    if (!StretchBlt(chain->chain_dc, 0, 0, chain->extent.width, chain->extent.height, image->sw.dc, 0, 0, chain->extent.width, chain->extent.height, SRCCOPY))
-      chain->status = VK_ERROR_MEMORY_MAP_FAILED;
+      p_atomic_set(&chain->status, VK_ERROR_MEMORY_MAP_FAILED);
+
+   if (p_atomic_read(&chain->status) == VK_SUCCESS && chain->base.present_mode == VK_PRESENT_MODE_FIFO_KHR) {
+      if (!GdiFlush())
+         p_atomic_set(&chain->status, VK_ERROR_MEMORY_MAP_FAILED);
+      else if (FAILED(DwmFlush()))
+         p_atomic_set(&chain->status, VK_ERROR_SURFACE_LOST_KHR);
+   }
 
    wsi_win32_set_image_idle(chain, image);
 
-   return chain->status;
+   return p_atomic_read(&chain->status);
+}
+
+static int
+wsi_win32_present_thread(void *data)
+{
+   auto chain = static_cast<wsi_win32_swapchain *>(data);
+   mtx_lock(&chain->acquire_mutex);
+   while (chain->present_thread_run || chain->present_count) {
+      if (!chain->present_count) {
+         if (u_cnd_monotonic_wait(&chain->acquire_cond, &chain->acquire_mutex) != thrd_success) {
+            p_atomic_set(&chain->status, VK_ERROR_OUT_OF_DATE_KHR);
+            u_cnd_monotonic_broadcast(&chain->acquire_cond);
+            break;
+         }
+         continue;
+      }
+      uint32_t image_index = chain->present_queue[chain->present_head];
+      chain->present_head = (chain->present_head + 1) % chain->base.image_count;
+      chain->present_count--;
+      mtx_unlock(&chain->acquire_mutex);
+      if (p_atomic_read(&chain->status) == VK_SUCCESS)
+         wsi_win32_present_gdi(chain, image_index);
+      else
+         wsi_win32_set_image_idle(chain, &chain->images[image_index]);
+      mtx_lock(&chain->acquire_mutex);
+   }
+   mtx_unlock(&chain->acquire_mutex);
+   return 0;
+}
+
+static void
+wsi_win32_stop_present_thread(struct wsi_win32_swapchain *chain)
+{
+   if (!chain->present_thread_created) return;
+   mtx_lock(&chain->acquire_mutex);
+   chain->present_thread_run = false;
+   u_cnd_monotonic_broadcast(&chain->acquire_cond);
+   mtx_unlock(&chain->acquire_mutex);
+   thrd_join(chain->present_thread, NULL);
+   chain->present_thread_created = false;
+}
+
+static VkResult
+wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
+                        uint32_t image_index,
+                        uint64_t present_id,
+                        const VkPresentRegionKHR *damage)
+{
+   auto chain = static_cast<wsi_win32_swapchain *>(static_cast<void *>(drv_chain));
+   assert(image_index < chain->base.image_count);
+   auto image = &chain->images[image_index];
+   assert(image->state == WSI_IMAGE_DRAWING);
+   if (chain->dxgi)
+      return wsi_win32_queue_present_dxgi(chain, image, damage);
+   if (!chain->present_thread_created)
+      return wsi_win32_present_gdi(chain, image_index);
+   mtx_lock(&chain->acquire_mutex);
+   VkResult status = p_atomic_read(&chain->status);
+   if (status == VK_SUCCESS) {
+      assert(chain->present_count < chain->base.image_count);
+      uint32_t tail = (chain->present_head + chain->present_count) % chain->base.image_count;
+      chain->present_queue[tail] = image_index;
+      chain->present_count++;
+      image->state = WSI_IMAGE_QUEUED;
+      u_cnd_monotonic_broadcast(&chain->acquire_cond);
+   }
+   mtx_unlock(&chain->acquire_mutex);
+   return status;
 }
 
 static VkResult
@@ -1002,7 +1098,7 @@ wsi_win32_surface_create_swapchain(
    chain->extent = create_info->imageExtent;
 
    chain->wsi = wsi;
-   chain->status = VK_SUCCESS;
+   p_atomic_set(&chain->status, VK_SUCCESS);
 
    chain->surface = surface;
 
@@ -1020,6 +1116,21 @@ wsi_win32_surface_create_swapchain(
          goto fail;
 
       chain->base.image_count++;
+   }
+
+   if (!chain->dxgi && debug_get_bool_option("TU_GSL_THREADED_WSI", false)) {
+      chain->present_queue = static_cast<uint32_t *>(vk_zalloc(allocator,
+         sizeof(uint32_t) * chain->base.image_count, 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT));
+      if (!chain->present_queue) {
+         result = VK_ERROR_OUT_OF_HOST_MEMORY;
+         goto fail;
+      }
+      chain->present_thread_run = true;
+      if (thrd_create(&chain->present_thread, wsi_win32_present_thread, chain) != thrd_success) {
+         result = VK_ERROR_OUT_OF_HOST_MEMORY;
+         goto fail;
+      }
+      chain->present_thread_created = true;
    }
 
    *swapchain_out = &chain->base;
