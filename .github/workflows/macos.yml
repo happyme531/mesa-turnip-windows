@@ -1,5 +1,7 @@
 name: macOS-CI
-on: push
+on:
+  push:
+    branches-ignore: [turnip-windows-gsl-dev]
 
 permissions:
   contents: read
