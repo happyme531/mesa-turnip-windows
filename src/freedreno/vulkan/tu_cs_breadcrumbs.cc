@@ -3,9 +3,16 @@
  * SPDX-License-Identifier: MIT
  */
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#endif
+
+#include "c11/threads.h"
 
 #include "tu_cs.h"
 #include "tu_device.h"
@@ -31,14 +38,14 @@ struct breadcrumbs_context
    uint32_t breadcrumb_breakpoint_hits;
 
    bool thread_stop;
-   pthread_t breadcrumbs_thread;
+   thrd_t breadcrumbs_thread;
 
    struct tu_device *device;
 
    uint32_t breadcrumb_idx;
 };
 
-static void *
+static int
 sync_gpu_with_cpu(void *_job)
 {
    struct breadcrumbs_context *ctx = (struct breadcrumbs_context *) _job;
@@ -46,11 +53,23 @@ sync_gpu_with_cpu(void *_job)
    uint32_t last_breadcrumb = 0;
    uint32_t breakpoint_hits = 0;
 
+#ifdef _WIN32
+   WSADATA wsa_data;
+   if (WSAStartup(MAKEWORD(2, 2), &wsa_data))
+      return 0;
+   SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
+   bool socket_failed = s == INVALID_SOCKET;
+#else
    int s = socket(AF_INET, SOCK_DGRAM, 0);
+   bool socket_failed = s < 0;
+#endif
 
-   if (s < 0) {
+   if (socket_failed) {
       mesa_loge("TU_BREADCRUMBS: Error while creating socket");
-      return NULL;
+#ifdef _WIN32
+      WSACleanup();
+#endif
+      return 0;
    }
 
    struct sockaddr_in to_addr;
@@ -69,7 +88,7 @@ sync_gpu_with_cpu(void *_job)
          last_breadcrumb = current_breadcrumb;
 
          uint32_t data = htonl(last_breadcrumb);
-         if (sendto(s, &data, sizeof(data), 0, (struct sockaddr *) &to_addr,
+         if (sendto(s, (const char *) &data, sizeof(data), 0, (struct sockaddr *) &to_addr,
                     sizeof(to_addr)) < 0) {
             mesa_loge("TU_BREADCRUMBS: sendto failed");
             goto fail;
@@ -91,9 +110,14 @@ sync_gpu_with_cpu(void *_job)
    }
 
 fail:
+#ifdef _WIN32
+   closesocket(s);
+   WSACleanup();
+#else
    close(s);
+#endif
 
-   return NULL;
+   return 0;
 }
 
 /* Same as tu_cs_emit_pkt7 but without instrumentation */
@@ -137,7 +161,10 @@ tu_breadcrumbs_init(struct tu_device *device)
    global->breadcrumb_cpu_sync_seqno = 0;
    global->breadcrumb_gpu_sync_seqno = 0;
 
-   pthread_create(&ctx->breadcrumbs_thread, NULL, sync_gpu_with_cpu, ctx);
+   if (thrd_create(&ctx->breadcrumbs_thread, sync_gpu_with_cpu, ctx) != thrd_success) {
+      device->breadcrumbs_ctx = NULL;
+      free(ctx);
+   }
 }
 
 void
@@ -148,7 +175,7 @@ tu_breadcrumbs_finish(struct tu_device *device)
       return;
 
    ctx->thread_stop = true;
-   pthread_join(ctx->breadcrumbs_thread, NULL);
+   thrd_join(ctx->breadcrumbs_thread, NULL);
 
    free(ctx);
 }

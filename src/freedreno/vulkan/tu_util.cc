@@ -10,6 +10,7 @@
 
 #include "util/os_file.h"
 #include "util/os_file_notify.h"
+#include "util/os_time.h"
 #include "util/timespec.h"
 #include "util/u_math.h"
 #include "vk_enum_to_str.h"
@@ -598,15 +599,15 @@ tu_dbg_log_gmem_load_store_skips(struct tu_device *device)
    static uint32_t last_total_stores = 0;
    static struct timespec last_time = {};
 
-   pthread_mutex_lock(&device->submit_mutex);
+   mtx_lock(&device->submit_mutex);
 
    struct timespec current_time;
-   clock_gettime(CLOCK_MONOTONIC, &current_time);
+   timespec_from_nsec(&current_time, os_time_get_nano());
 
    if (timespec_sub_to_nsec(&current_time, &last_time) > 1000 * 1000 * 1000) {
       last_time = current_time;
    } else {
-      pthread_mutex_unlock(&device->submit_mutex);
+      mtx_unlock(&device->submit_mutex);
       return;
    }
 
@@ -638,5 +639,5 @@ tu_dbg_log_gmem_load_store_skips(struct tu_device *device)
    last_total_loads = current_total_loads;
    last_total_stores = current_total_stores;
 
-   pthread_mutex_unlock(&device->submit_mutex);
+   mtx_unlock(&device->submit_mutex);
 }

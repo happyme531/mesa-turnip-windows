@@ -11,7 +11,9 @@
 #define TU_COMMON_H
 
 #include <assert.h>
-#include <pthread.h>
+#ifdef _WIN32
+#include <io.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -37,6 +39,7 @@
 
 #include "c11/threads.h"
 #include "util/bitscan.h"
+#include "util/cnd_monotonic.h"
 #include "util/detect_os.h"
 #include "util/list.h"
 #include "util/log.h"

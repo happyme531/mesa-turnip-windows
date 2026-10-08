@@ -2807,7 +2807,7 @@ tu_device_destroy_mutexes(struct tu_device *device)
 
    u_rwlock_destroy(&device->dma_bo_lock);
    u_rwlock_destroy(&device->vm_bind_fence_lock);
-   pthread_mutex_destroy(&device->submit_mutex);
+   mtx_destroy(&device->submit_mutex);
 
    if (device->physical_device->has_set_iova) {
       mtx_destroy(&device->vma_mutex);
@@ -2931,7 +2931,7 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
 
    u_rwlock_init(&device->dma_bo_lock);
    u_rwlock_init(&device->vm_bind_fence_lock);
-   pthread_mutex_init(&device->submit_mutex, NULL);
+   mtx_init(&device->submit_mutex, mtx_plain);
    device->vm_bind_fence_fd = -1;
 
    if (physical_device->has_set_iova) {
@@ -3069,12 +3069,12 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
    }
 
    tu_bo_suballocator_init(&device->event_suballoc, device,
-      getpagesize(), TU_BO_ALLOC_INTERNAL_RESOURCE,
+      os_page_size, TU_BO_ALLOC_INTERNAL_RESOURCE,
       "event_suballoc");
 
    tu_bo_suballocator_init(
       &device->vis_stream_suballocator, device,
-      getpagesize(),
+      os_page_size,
       (enum tu_bo_alloc_flags)(TU_BO_ALLOC_INTERNAL_RESOURCE |
                                TU_BO_ALLOC_ALLOW_DUMP),
       "vis_stream_suballoc");
@@ -3209,28 +3209,12 @@ tu_CreateDevice(VkPhysicalDevice physicalDevice,
    tu_init_dbg_reg_stomper(device);
 
    /* Initialize a condition variable for timeline semaphore */
-   pthread_condattr_t condattr;
-   if (pthread_condattr_init(&condattr) != 0) {
+   if (u_cnd_monotonic_init(&device->timeline_cond) != thrd_success) {
       result = vk_startup_errorf(physical_device->instance,
-                                 VK_ERROR_INITIALIZATION_FAILED,
-                                 "pthread condattr init");
+                                VK_ERROR_INITIALIZATION_FAILED,
+                                "timeline condition variable init");
       goto fail_timeline_cond;
    }
-   if (pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC) != 0) {
-      pthread_condattr_destroy(&condattr);
-      result = vk_startup_errorf(physical_device->instance,
-                                 VK_ERROR_INITIALIZATION_FAILED,
-                                 "pthread condattr clock setup");
-      goto fail_timeline_cond;
-   }
-   if (pthread_cond_init(&device->timeline_cond, &condattr) != 0) {
-      pthread_condattr_destroy(&condattr);
-      result = vk_startup_errorf(physical_device->instance,
-                                 VK_ERROR_INITIALIZATION_FAILED,
-                                 "pthread cond init");
-      goto fail_timeline_cond;
-   }
-   pthread_condattr_destroy(&condattr);
 
    device->use_z24uint_s8uint =
       physical_device->info->props.has_z24uint_s8uint &&
@@ -3447,7 +3431,7 @@ tu_DestroyDevice(VkDevice _device, const VkAllocationCallbacks *pAllocator)
 
    u_vector_finish(&device->zombie_vmas);
 
-   pthread_cond_destroy(&device->timeline_cond);
+   u_cnd_monotonic_destroy(&device->timeline_cond);
    _mesa_hash_table_destroy(device->bo_sizes, NULL);
    vk_free(&device->vk.alloc, device->submit_bo_list);
    util_dynarray_fini(&device->dump_bo_list);

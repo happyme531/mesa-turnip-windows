@@ -453,8 +453,8 @@ struct tu_device
 
    /* Condition variable for timeline semaphore to notify waiters when a
     * new submit is executed. */
-   pthread_cond_t timeline_cond;
-   pthread_mutex_t submit_mutex;
+   struct u_cnd_monotonic timeline_cond;
+   mtx_t submit_mutex;
 
    struct fd_perfcntr_state *perfcntrs;
 
