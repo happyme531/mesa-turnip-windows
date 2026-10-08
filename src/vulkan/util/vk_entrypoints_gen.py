@@ -43,11 +43,9 @@ TEMPLATE_H = Template(COPYRIGHT + """\
 #ifndef ${guard}
 #define ${guard}
 
-% if not tmpl_prefix:
 #ifdef __cplusplus
 extern "C" {
 #endif
-% endif
 
 /* Entrypoint symbols are optional, and resolves to NULL if undefined.
  * On Unix, this semantics is achieved through weak symbols.
@@ -92,7 +90,14 @@ extern const struct vk_device_entrypoint_table ${p}_device_entrypoints;
 extern const struct vk_device_entrypoint_table ${tmpl_prefix}_device_entrypoints_${v};
 % endfor
 
+#ifdef __cplusplus
+}
+#endif
+
 % if gen_proto:
+#ifdef __cplusplus
+extern "C" {
+#endif
 % for e in instance_entrypoints:
   % if e.guard is not None:
 #ifdef ${e.guard}
@@ -117,11 +122,18 @@ extern const struct vk_device_entrypoint_table ${tmpl_prefix}_device_entrypoints
   % endif
 % endfor
 
+#ifdef __cplusplus
+}
+#endif
+
 % for e in device_entrypoints:
   % if e.guard is not None:
 #ifdef ${e.guard}
   % endif
   % for p in device_prefixes:
+#ifdef __cplusplus
+  extern "C"
+#endif
   VKAPI_ATTR ${e.return_type} VKAPI_CALL ${p}_${e.name}(${e.decl_params()}) VK_ENTRY_WEAK VK_ENTRY_HIDDEN;
   % endfor
 
@@ -139,11 +151,6 @@ extern const struct vk_device_entrypoint_table ${tmpl_prefix}_device_entrypoints
 % endfor
 % endif
 
-% if not tmpl_prefix:
-#ifdef __cplusplus
-}
-#endif
-% endif
 
 #endif /* ${guard} */
 """)
@@ -185,7 +192,8 @@ TEMPLATE_C = Template(COPYRIGHT + """
     #pragma comment(linker, "/alternatename:#${p}_${e.name}=#vk_entrypoint_stub")
 #endif
 #endif
-#else
+#endif
+#if !defined(_MSC_VER) || defined(__clang__)
     % if entrypoints == device_entrypoints:
       % for v in tmpl_variants:
     extern template
