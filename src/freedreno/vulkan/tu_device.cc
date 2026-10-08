@@ -161,6 +161,9 @@ static const struct vk_instance_extension_table tu_instance_extensions_supported
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
    .KHR_wayland_surface                 = true,
 #endif
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+   .KHR_win32_surface                   = true,
+#endif
 #ifdef VK_USE_PLATFORM_XCB_KHR
    .KHR_xcb_surface                     = true,
 #endif
