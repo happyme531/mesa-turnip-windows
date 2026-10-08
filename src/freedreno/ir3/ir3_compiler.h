@@ -316,6 +316,8 @@ enum ir3_shader_debug {
    IR3_DBG_RAMSGS = BITFIELD_BIT(23),
    IR3_DBG_NOALIASTEX = BITFIELD_BIT(24),
    IR3_DBG_NOALIASRT = BITFIELD_BIT(25),
+   IR3_DBG_NOVSPREAMBLE = BITFIELD_BIT(26),
+   IR3_DBG_NOFSPREAMBLE = BITFIELD_BIT(27),
 };
 
 extern enum ir3_shader_debug ir3_shader_debug;

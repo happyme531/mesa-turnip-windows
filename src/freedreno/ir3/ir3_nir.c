@@ -1631,8 +1631,14 @@ ir3_nir_lower_variant(struct ir3_shader_variant *so,
     * have to lower the preamble after UBO lowering so that UBO lowering can
     * insert instructions in the preamble to push UBOs.
     */
-   if (so->compiler->has_preamble &&
-       !(ir3_shader_debug & IR3_DBG_NOPREAMBLE))
+   bool disable_preamble =
+      (ir3_shader_debug & IR3_DBG_NOPREAMBLE) ||
+      (so->type == MESA_SHADER_VERTEX &&
+       (ir3_shader_debug & IR3_DBG_NOVSPREAMBLE)) ||
+      (so->type == MESA_SHADER_FRAGMENT &&
+       (ir3_shader_debug & IR3_DBG_NOFSPREAMBLE));
+
+   if (so->compiler->has_preamble && !disable_preamble)
       progress |= OPT(s, ir3_nir_opt_preamble, so);
 
    if (so->compiler->info->props.load_shader_consts_via_preamble)
@@ -1653,8 +1659,8 @@ ir3_nir_lower_variant(struct ir3_shader_variant *so,
 
    progress |= OPT(s, ir3_nir_lower_ubo_loads, so);
 
-   if (so->compiler->gen >= 7 &&
-       !(ir3_shader_debug & (IR3_DBG_NOPREAMBLE | IR3_DBG_NODESCPREFETCH)))
+   if (so->compiler->gen >= 7 && !disable_preamble &&
+       !(ir3_shader_debug & IR3_DBG_NODESCPREFETCH))
       progress |= OPT(s, ir3_nir_opt_prefetch_descriptors, so);
 
    if (so->shader_options.push_consts_type == IR3_PUSH_CONSTS_SHARED_PREAMBLE)
