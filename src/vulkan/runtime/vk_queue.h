@@ -288,6 +288,7 @@ struct vk_queue_submit {
    VkSparseImageMemoryBindInfo *image_binds;
 
    uint32_t perf_pass_index;
+   bool signal_on_cpu;
 
    /* Used internally; should be ignored by drivers */
    uint32_t _bind_entry_count;

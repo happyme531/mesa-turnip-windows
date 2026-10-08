@@ -668,6 +668,10 @@ vk_queue_submit_final(struct vk_queue *queue,
       }
    }
 
+   if (submit->signal_on_cpu)
+      return vk_sync_signal_many(queue->base.device,
+                                 submit->signal_count, submit->signals);
+
    return VK_SUCCESS;
 }
 
