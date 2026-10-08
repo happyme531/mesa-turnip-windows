@@ -21,6 +21,7 @@
 #include "tu_cs.h"
 #include "tu_device.h"
 #include "tu_image.h"
+#include "tu_knl.h"
 #include "tu_pass.h"
 
 /** Compile-time debug options **/
@@ -274,6 +275,9 @@ tu_autotune::get_env_config()
    static config_t at_config;
    std::call_once(once, [&] {
       algorithm algo = algorithm::DEFAULT;
+      if (strcmp(device->instance->knl->name, "gsl") == 0 &&
+          device->physical_device->dev_id.chip_id == 0x43050c01)
+         algo = algorithm::PROFILED_IMM;
       const char *algo_str = os_get_option("TU_AUTOTUNE_ALGO");
       std::string_view algo_strv;
 

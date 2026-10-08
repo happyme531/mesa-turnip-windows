@@ -518,6 +518,8 @@ tu_knl_gsl_load(struct tu_instance *instance)
    }
    while (dst < ARRAY_SIZE(physical->dev_info.magic_raw))
       physical->dev_info.magic_raw[dst++] = {};
+   if (physical->dev_id.chip_id == 0x43050c01)
+      physical->dev_info.props.has_generic_clear = debug_get_bool_option("TU_GSL_GENERIC_CLEAR", true);
    list_addtail(&physical->vk.link, &instance->vk.physical_devices.list);
    return VK_SUCCESS;
 }
