@@ -31,6 +31,12 @@
 #include "util/u_math.h"
 #include "util/u_cpu_detect.h"
 
+#if DETECT_ARCH_AARCH64 && DETECT_CC_MSVC
+#ifndef ARM64_FPCR
+#define ARM64_FPCR 0x5a20
+#endif
+#endif
+
 #if DETECT_ARCH_SSE
 #include <xmmintrin.h>
 /* This is defined in pmmintrin.h, but it can only be included when -msse3 is
