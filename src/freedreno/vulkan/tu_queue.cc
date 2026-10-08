@@ -418,6 +418,15 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
    MESA_TRACE_FUNC();
    struct tu_queue *queue = list_entry(_queue, struct tu_queue, vk);
    struct tu_device *device = queue->device;
+   vk_submit->signal_on_cpu = strcmp(device->instance->knl->name, "gsl") == 0;
+#ifdef TU_HAS_GSL
+   if (vk_submit->signal_on_cpu) {
+      VkResult sync_result = tu_gsl_prepare_cpu_signals(
+         &device->vk, vk_submit->signals, vk_submit->signal_count);
+      if (sync_result != VK_SUCCESS)
+         return sync_result;
+   }
+#endif
    bool u_trace_enabled = u_trace_should_process(&queue->device->trace_context);
    struct util_dynarray dump_cmds;
    struct tu_cs *autotune_cs = NULL;
@@ -562,7 +571,8 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
 
    result =
       tu_queue_submit(queue, submit, vk_submit->waits, vk_submit->wait_count,
-                      vk_submit->signals, vk_submit->signal_count,
+                      vk_submit->signals,
+                      vk_submit->signal_on_cpu ? 0 : vk_submit->signal_count,
                       u_trace_submission_data);
 
    if (result != VK_SUCCESS) {

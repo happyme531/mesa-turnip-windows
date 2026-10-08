@@ -16,7 +16,9 @@
 #include <sys/sysmacros.h>
 #endif
 
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 #include "util/cache_ops.h"
 #include "util/libdrm.h"
@@ -153,6 +155,12 @@ tu_bo_unmap(struct tu_device *dev, struct tu_bo *bo, bool reserve)
 
    TU_RMV(bo_unmap, dev, bo);
 
+#ifdef TU_HAS_GSL
+   if (reserve)
+      return vk_error(dev, VK_ERROR_MEMORY_MAP_FAILED);
+   bo->map = NULL;
+   return VK_SUCCESS;
+#else
    if (reserve) {
       void *map = mmap(bo->map, bo->size, PROT_NONE,
                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
@@ -166,6 +174,7 @@ tu_bo_unmap(struct tu_device *dev, struct tu_bo *bo, bool reserve)
    bo->map = NULL;
 
    return VK_SUCCESS;
+#endif
 }
 
 void
@@ -338,7 +347,9 @@ tu_queue_submit(struct tu_queue *queue, void *submit,
 VkResult
 tu_enumerate_devices(struct vk_instance *vk_instance)
 {
-#ifdef TU_HAS_KGSL
+#ifdef TU_HAS_GSL
+   return tu_knl_gsl_load(container_of(vk_instance, struct tu_instance, vk));
+#elif defined(TU_HAS_KGSL)
    struct tu_instance *instance =
       container_of(vk_instance, struct tu_instance, vk);
 
@@ -377,6 +388,9 @@ tu_physical_device_try_create(struct vk_instance *vk_instance,
                               struct _drmDevice *drm_device,
                               struct vk_physical_device **out)
 {
+#ifdef TU_HAS_GSL
+   return VK_ERROR_INCOMPATIBLE_DRIVER;
+#else
    struct tu_instance *instance =
       container_of(vk_instance, struct tu_instance, vk);
 
@@ -492,4 +506,5 @@ out:
    drmFreeVersion(version);
 
    return result;
+#endif
 }

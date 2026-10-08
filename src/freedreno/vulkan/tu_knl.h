@@ -19,6 +19,18 @@
 struct tu_u_trace_syncobj;
 struct tu_queue;
 struct vdrm_bo;
+struct tu_physical_device;
+struct tu_instance;
+
+#ifdef TU_HAS_GSL
+struct vk_device;
+struct vk_sync_signal;
+VkResult tu_gsl_prepare_cpu_signals(struct vk_device *device,
+                                  const struct vk_sync_signal *signals,
+                                  uint32_t signal_count);
+VkResult tu_knl_gsl_load(struct tu_instance *instance);
+void tu_knl_gsl_finish(struct tu_physical_device *device);
+#endif
 
 enum tu_bo_alloc_flags {
    TU_BO_ALLOC_NO_FLAGS = 0,
